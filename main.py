@@ -17,8 +17,13 @@ def callback(ch, method, properties, body):
             metric_name = b['measurement']
             metric_value = b['fields']['value']
             tags = b['tags']
-
-            statsd.gauge(metric_name,float(metric_value),tags)
+            tags_list=[]
+            for key,value in tags.items():
+                tags_list.append(f'{key}:{value}')
+            
+            # tags_value=tags_list.join(',')
+            statsd.gauge(metric_name,float(metric_value),tags=tags_list)
+            # print(metric_name,float(metric_value),type(tags))
     else:
         messages=message.replace(']','];')
         msgs = messages.split(';')
@@ -29,9 +34,12 @@ def callback(ch, method, properties, body):
                     metric_name = b['measurement']
                     metric_value = b['fields']['value']
                     tags = b['tags']
+                    tags_list=[]
+                    for key,value in tags.items():
+                        tags_list.append(f'{key}:{value}')
 
-                    statsd.gauge(metric_name,float(metric_value),tags)
-    
+                    statsd.gauge(metric_name,float(metric_value),tags=tags_list)
+                    # print(metric_name,float(metric_value),type(tags))
 
 
 options = {
@@ -44,13 +52,9 @@ initialize(**options)
 channel.basic_consume(
 queue='test-queue-dd', on_message_callback=callback, auto_ack=True)
 
-print(' [*] Waiting for messages. To exit press CTRL+C')
+print(' [*] Waiting for messages. To exit press CTRL+C, v-2')
 
-# print('Time to sleep')
 
-# time.sleep(60)
-
-# print('Sleep over!')
 
 channel.start_consuming()
 

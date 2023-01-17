@@ -2,48 +2,29 @@ import pika
 import time
 from datadog import initialize, statsd
 import json
+from configparser import ConfigParser
+from amqpstorm import management
 
-credentials = pika.PlainCredentials('rmqstatd',':NGg6^RQ_woOhPWg=g')
-connection = pika.BlockingConnection(
-    pika.ConnectionParameters('prod-rmq02.prediccio.com',5672,'/',credentials,heartbeat=30))
-channel = connection.channel()
+import logging
 
-def callback(ch, method, properties, body):
-    
-    message = body.decode('utf8').replace("'", '"')
-    if message.count('measurement') == 1:
-        if is_json(message):
-            data = json.loads(message)
-            for b in data:
-                metric_name = b['measurement']
-                metric_value = b['fields']['value']
-                tags = b['tags']
-                tags_list=[]
-                for key,value in tags.items():
-                    tags_list.append(f'{key}:{value}')
-                
-                # tags_value=tags_list.join(',')
-                statsd.gauge(metric_name,float(metric_value),tags=tags_list)
-                # print(metric_name,float(metric_value),type(tags))
-    else:
-        messages=message.replace(']','];')
-        msgs = messages.split(';')
-        for m in msgs:
-            if '[{' in m:
-                if is_json(m):
-                    data = json.loads(m)
-                    for b in data:
-                        metric_name = b['measurement']
-                        metric_value = b['fields']['value']
-                        tags = b['tags']
-                        tags_list=[]
-                        for key,value in tags.items():
-                            tags_list.append(f'{key}:{value}')
+logging.basicConfig(filename='logger.log', encoding='utf-8', level=logging.WARN)
 
-                        statsd.gauge(metric_name,float(metric_value),tags=tags_list)
-                        # print(metric_name,float(metric_value),type(tags))
-    
+config = ConfigParser()
+config.read('configuration.ini')
+host = config.get('variables','host')
+port = config.get('variables','port')
+virtual_host = config.get('variables','virtual_host')
 
+queue_lists = config.get('queues','names').split(',')
+# print(queue_lists)
+
+env_lists = config.get('queues','env').split(',')
+username = config.get('credentials','username')
+password = config.get('credentials','password')
+
+print(username)
+print(password)
+# print(env_lists)
 
 options = {
     'statsd_host':'localhost',
@@ -52,21 +33,94 @@ options = {
 
 initialize(**options)
 
-channel.basic_consume(
-queue='test-queue-dd', on_message_callback=callback, auto_ack=True)
+def on_open(connection):
+    connection.channel(on_open_callback=on_channel_open)
 
-print(' [*] Waiting for messages. To exit press CTRL+C, v-2')
+def on_channel_open(channel):
+    global queue_lists,env_lists
+    for i,a in enumerate(queue_lists):
+        consume_queue(a,channel,env_lists[i])
 
+def on_close(connection):
+    connection.channel(on_close_callback=on_channel_close)
 
+def on_channel_close(channel):
+    log_channel_close(channel)
 
-channel.start_consuming()
+credentials = pika.PlainCredentials('rmqstatd',':NGg6^RQ_woOhPWg=g')
+connection = pika.SelectConnection(
+    pika.ConnectionParameters(str(host),int(port),str(virtual_host),credentials,heartbeat=30),on_open_callback=on_open)
 
+try:
+    connection.ioloop.start()
+except KeyboardInterrupt:
+    logging.warning('Script interrupted manually')
+    connection.close()
 
-channel.stop_consuming()
+def log_channel_close(channel):
+    logging.warning('Script channel is closed, messages are not logged')
+    print('rabbitmq channel is closed')
 
-def is_json(myjson):
-  try:
-    json.loads(myjson)
-  except ValueError as e:
-    return False
-  return True
+class consume_queue:
+    def __init__(self,queue,channel,env):
+        self.queue = queue
+        self.channel = channel
+        self.env = env
+        channel.basic_consume(queue=self.queue, on_message_callback=self.callback, auto_ack=True)
+        
+    def callback(self,ch, method, properties, body):
+            message = body.decode('utf8').replace("'", '"')
+            if message.count('measurement') == 1:
+                if self.is_json(message):
+                    data = json.loads(message)
+                    for b in data:
+                        metric_name = b['measurement']
+                        metric_value = b['fields']['value']
+                        tags = b['tags']
+                        tags_list=[]
+                        for key,value in tags.items():
+                            tags_list.append(f'{key}:{value}')
+                        
+                        tags.append(f'enviornment:{self.env}')
+                        # tags_value=tags_list.join(',')
+                        statsd.gauge(metric_name,float(metric_value),tags=tags_list)
+                        # print(metric_name,float(metric_value),type(tags))
+            else:
+                messages=message.replace(']','];')
+                msgs = messages.split(';')
+                for m in msgs:
+                    if '[{' in m:
+                        if self.is_json(m):
+                            data = json.loads(m)
+                            for b in data:
+                                metric_name = b['measurement']
+                                metric_value = b['fields']['value']
+                                tags = b['tags']
+                                tags_list=[]
+                                for key,value in tags.items():
+                                    tags_list.append(f'{key}:{value}')
+
+                                tags.append(f'enviornment:{self.env}')
+                                statsd.gauge(metric_name,float(metric_value),tags=tags_list)
+                                # print(metric_name,float(metric_value),type(tags))
+    
+    def is_json(self,myjson):
+        try:
+            json.loads(myjson)
+        except ValueError as e:
+            return False
+        return True
+
+if __name__ == '__main__':
+    API = management.ManagementApi(f'{host}:{port}', username,
+                                   password, verify=True)
+    try:
+        result = API.aliveness_test(virtual_host)
+        if result['status'] == 'ok':
+            islive = True
+        else:
+            logging.warning('RabbitMQ is not alive! :(')
+    except management.ApiConnectionError as why:
+        logging.warning('Connection Error: %s' % why)
+    except management.ApiError as why:
+        logging.warning('ApiError: %s' % why)

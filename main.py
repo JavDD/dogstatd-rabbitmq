@@ -22,8 +22,8 @@ env_lists = config.get('queues','env').split(',')
 username = config.get('credentials','username')
 password = config.get('credentials','password')
 
-print(username)
-print(password)
+# print(username)
+# print(password)
 # print(env_lists)
 
 options = {
@@ -32,6 +32,56 @@ options = {
 }
 
 initialize(**options)
+
+class consume_queue:
+    def __init__(self,queue,channel,env):
+        self.queue = queue
+        self.channel = channel
+        self.env = env
+        channel.basic_consume(queue=self.queue, on_message_callback=self.callback, auto_ack=True)
+        
+    def callback(self,ch, method, properties, body):
+            message = body.decode('utf8').replace("'", '"')
+            if message.count('measurement') == 1:
+                if self.is_json(message):
+                    data = json.loads(message)
+                    for b in data:
+                        metric_name = b['measurement']
+                        metric_value = b['fields']['value']
+                        tags = b['tags']
+                        tags_list=[]
+                        for key,value in tags.items():
+                            tags_list.append(f'{key}:{value}')
+                        
+                        tags_list.append(f'enviornment:{self.env}')
+                        # tags_value=tags_list.join(',')
+                        statsd.gauge(metric_name,float(metric_value),tags=tags_list)
+                        # print(metric_name,float(metric_value),type(tags))
+            else:
+                messages=message.replace(']','];')
+                msgs = messages.split(';')
+                for m in msgs:
+                    if '[{' in m:
+                        if self.is_json(m):
+                            data = json.loads(m)
+                            for b in data:
+                                metric_name = b['measurement']
+                                metric_value = b['fields']['value']
+                                tags = b['tags']
+                                tags_list=[]
+                                for key,value in tags.items():
+                                    tags_list.append(f'{key}:{value}')
+
+                                tags_list.append(f'enviornment:{self.env}')
+                                statsd.gauge(metric_name,float(metric_value),tags=tags_list)
+                                # print(metric_name,float(metric_value),type(tags))
+    
+    def is_json(self,myjson):
+        try:
+            json.loads(myjson)
+        except ValueError as e:
+            return False
+        return True
 
 def on_open(connection):
     connection.channel(on_open_callback=on_channel_open)
@@ -61,55 +111,7 @@ def log_channel_close(channel):
     logging.warning('Script channel is closed, messages are not logged')
     print('rabbitmq channel is closed')
 
-class consume_queue:
-    def __init__(self,queue,channel,env):
-        self.queue = queue
-        self.channel = channel
-        self.env = env
-        channel.basic_consume(queue=self.queue, on_message_callback=self.callback, auto_ack=True)
-        
-    def callback(self,ch, method, properties, body):
-            message = body.decode('utf8').replace("'", '"')
-            if message.count('measurement') == 1:
-                if self.is_json(message):
-                    data = json.loads(message)
-                    for b in data:
-                        metric_name = b['measurement']
-                        metric_value = b['fields']['value']
-                        tags = b['tags']
-                        tags_list=[]
-                        for key,value in tags.items():
-                            tags_list.append(f'{key}:{value}')
-                        
-                        tags.append(f'enviornment:{self.env}')
-                        # tags_value=tags_list.join(',')
-                        statsd.gauge(metric_name,float(metric_value),tags=tags_list)
-                        # print(metric_name,float(metric_value),type(tags))
-            else:
-                messages=message.replace(']','];')
-                msgs = messages.split(';')
-                for m in msgs:
-                    if '[{' in m:
-                        if self.is_json(m):
-                            data = json.loads(m)
-                            for b in data:
-                                metric_name = b['measurement']
-                                metric_value = b['fields']['value']
-                                tags = b['tags']
-                                tags_list=[]
-                                for key,value in tags.items():
-                                    tags_list.append(f'{key}:{value}')
 
-                                tags.append(f'enviornment:{self.env}')
-                                statsd.gauge(metric_name,float(metric_value),tags=tags_list)
-                                # print(metric_name,float(metric_value),type(tags))
-    
-    def is_json(self,myjson):
-        try:
-            json.loads(myjson)
-        except ValueError as e:
-            return False
-        return True
 
 if __name__ == '__main__':
     API = management.ManagementApi(f'{host}:{port}', username,

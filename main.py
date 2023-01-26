@@ -7,7 +7,7 @@ from amqpstorm import management
 
 import logging
 
-logging.basicConfig(filename='logger.log', encoding='utf-8', format='%(levelname)s - %(asctime)s: %(message)s',level=logging.INFO)
+logging.basicConfig(filename='logger.log', encoding='utf-8', format='%(levelname)s - %(asctime)s: %(message)s',datefmt='%Y-%m-%d %H:%M:%S',level=logging.INFO)
 
 logging.info('service has been started')
 

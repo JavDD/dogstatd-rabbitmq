@@ -4,8 +4,18 @@ from datadog import initialize, statsd
 import json
 from configparser import ConfigParser
 from amqpstorm import management
-
+import signal
 import logging
+
+
+class GracefulKiller:
+  kill_now = False
+  def __init__(self):
+    signal.signal(signal.SIGINT, self.exit_gracefully)
+    signal.signal(signal.SIGTERM, self.exit_gracefully)
+
+  def exit_gracefully(self, *args):
+    self.kill_now = True
 
 logging.basicConfig(filename='logger.log', encoding='utf-8', format='%(levelname)s - %(asctime)s: %(message)s',datefmt='%Y-%m-%d %H:%M:%S',level=logging.INFO)
 
@@ -116,18 +126,19 @@ def log_channel_close(channel):
 
 
 if __name__ == '__main__':
-    API = management.ManagementApi(f'{host}:{port}', username,
-                                   password, verify=True)
-    try:
-        result = API.aliveness_test(virtual_host)
-        if result['status'] == 'ok':
-            islive = True
-        else:
-            logging.warning('RabbitMQ is not alive! :(')
-    except management.ApiConnectionError as why:
-        logging.warning('Connection Error: %s' % why)
-    except management.ApiError as why:
-        logging.warning('ApiError: %s' % why)
-
-
-logging.info('service has been stopped')
+    killer = GracefulKiller()
+    while not killer.kill_now:
+        API = management.ManagementApi(f'{host}:{port}', username,
+                                    password, verify=True)
+        try:
+            result = API.aliveness_test(virtual_host)
+            if result['status'] == 'ok':
+                islive = True
+            else:
+                logging.warning('RabbitMQ is not alive! :(')
+        except management.ApiConnectionError as why:
+            logging.warning('Connection Error: %s' % why)
+        except management.ApiError as why:
+            logging.warning('ApiError: %s' % why)
+            
+    logging.info('service has been stopped')

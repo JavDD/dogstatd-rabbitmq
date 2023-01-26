@@ -7,7 +7,9 @@ from amqpstorm import management
 
 import logging
 
-logging.basicConfig(filename='logger.log', encoding='utf-8', level=logging.WARN)
+logging.basicConfig(filename='logger.log', encoding='utf-8', format='%(levelname)s - %(asctime)s: %(message)s',level=logging.INFO)
+
+logging.info('service has been started')
 
 config = ConfigParser()
 config.read('configuration.ini')
@@ -126,3 +128,6 @@ if __name__ == '__main__':
         logging.warning('Connection Error: %s' % why)
     except management.ApiError as why:
         logging.warning('ApiError: %s' % why)
+
+
+logging.info('service has been stopped')

@@ -109,7 +109,7 @@ def on_close(connection):
 def on_channel_close(channel):
     log_channel_close(channel)
 
-credentials = pika.PlainCredentials('rmqstatd',':NGg6^RQ_woOhPWg=g')
+credentials = pika.PlainCredentials(username,password)
 connection = pika.SelectConnection(
     pika.ConnectionParameters(str(host),int(port),str(virtual_host),credentials,heartbeat=30),on_open_callback=on_open)
 

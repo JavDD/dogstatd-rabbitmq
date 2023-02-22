@@ -76,7 +76,7 @@ class consume_queue:
                         # tags_value=tags_list.join(',')
                         statsd.gauge(metric_name,float(metric_value),tags=tags_list)
                         #print(metric_name,float(metric_value),type(tags))
-                        #print(data)
+                        # print(data)
             else:
                 messages=message.replace(']','];')
                 msgs = messages.split(';')
@@ -95,7 +95,7 @@ class consume_queue:
                                 tags_list.append(f'enviornment:{self.env}')
                                 statsd.gauge(metric_name,float(metric_value),tags=tags_list)
                                 #print(metric_name,float(metric_value),type(tags))
-                                #print(data)
+                                # print(data)
         except UnicodeDecodeError as e:
             logging.warn(f'Unicode error triggered, to be sent to {self.error_queue}')
             with open('error.csv', 'a') as f_object:
@@ -138,7 +138,7 @@ def on_channel_close(channel):
 credentials = pika.PlainCredentials(username,password)
 
 error_csv= csv.reader(open('error.csv'))
-if len(error_csv)>0:
+if len(list(error_csv))>0:
     connection_error = pika.SelectConnection(
         pika.ConnectionParameters(str(host),int(port),str(virtual_host),credentials,heartbeat=30))
 

@@ -181,20 +181,9 @@ def log_channel_close(channel):
 
 if __name__ == '__main__':
     killer = GracefulKiller()
-#     while not killer.kill_now:
-#         API = management.ManagementApi(f'{host}:{port}', username,
-#                                     password, verify=True)
-#         try:
-#             result = API.aliveness_test(virtual_host)
-#             if result['status'] == 'ok':
-#                 islive = True
-#             else:
-#                 logging.warning('RabbitMQ is not alive! :(')
-#         except management.ApiConnectionError as why:
-#             logging.warning('Connection Error: %s' % why)
-#         except management.ApiError as why:
-#             logging.warning('ApiError: %s' % why)
-            
+    while not killer.kill_now:
+        time.sleep(0.1)
+      
     logging.info('service has been stopped')
 
 

@@ -9,6 +9,7 @@ import logging
 import csv
 from csv import writer
 from datetime import timedelta, datetime
+import paho.mqtt.client as mqtt
 
 
 class GracefulKiller:
@@ -39,9 +40,16 @@ username = config.get('credentials','username')
 password = config.get('credentials','password')
 error_queue = config.get('error queue','name')
 
+mqtt_url = config.get('mqtt queue','url')
+mqtt_queue = config.get('mqtt queue','queue')
+mqtt_allow = config.get('mqtt queue','mqtt')
+mqtt_port = config.get('mqtt queue','port')
+mqtt_errorqueue = config.get('mqtt queue','errorqueue')
+mqtt_env = config.get('mqtt queue','env')
 # print(username)
 # print(password)
 # print(env_lists)
+
 
 options = {
     'statsd_host':'localhost',
@@ -76,7 +84,7 @@ class consume_queue:
                         # tags_value=tags_list.join(',')
                         statsd.gauge(metric_name,float(metric_value),tags=tags_list)
                         #print(metric_name,float(metric_value),type(tags))
-                        # print(data)
+                        #print(data)
             else:
                 messages=message.replace(']','];')
                 msgs = messages.split(';')
@@ -95,7 +103,7 @@ class consume_queue:
                                 tags_list.append(f'enviornment:{self.env}')
                                 statsd.gauge(metric_name,float(metric_value),tags=tags_list)
                                 #print(metric_name,float(metric_value),type(tags))
-                                # print(data)
+                                #print(data)
         except UnicodeDecodeError as e:
             logging.warn(f'Unicode error triggered, to be sent to {self.error_queue}')
             with open('error.csv', 'a') as f_object:
@@ -135,43 +143,143 @@ def on_close(connection):
 def on_channel_close(channel):
     log_channel_close(channel)
 
-credentials = pika.PlainCredentials(username,password)
+def on_message_mqtt(client, userdata, message):
+    try:
+        #print(message.payload.decode('utf8'))
+        body = message.payload
+        bodymessage = body.decode('utf8').replace("'", '"')
+        if bodymessage.count('measurement') == 1:
+            if is_json_custom(bodymessage):
+                data = json.loads(bodymessage)
+                for b in data:
+                    metric_name = b['measurement']
+                    metric_value = b['fields']['value']
+                    tags = b['tags']
+                    tags_list=[]
+                    for key,value in tags.items():
+                        tags_list.append(f'{key}:{value}')
+                        
+                    tags_list.append(f'enviornment:{mqtt_env}')
+                    # tags_value=tags_list.join(',')
+                    statsd.gauge(metric_name,float(metric_value),tags=tags_list)
+                    #print(metric_name,float(metric_value),type(tags))
+                    #print(data)
+        else:
+            messages=bodymessage.replace(']','];')
+            msgs = messages.split(';')
+            for m in msgs:
+                if '[{' in m:
+                    if is_json_custom(m):
+                        data = json.loads(m)
+                        for b in data:
+                            metric_name = b['measurement']
+                            metric_value = b['fields']['value']
+                            tags = b['tags']
+                            tags_list=[]
+                            for key,value in tags.items():
+                                tags_list.append(f'{key}:{value}')
 
-error_csv= csv.reader(open('error.csv'))
-if len(list(error_csv))>0:
-    connection_error = pika.SelectConnection(
-        pika.ConnectionParameters(str(host),int(port),str(virtual_host),credentials,heartbeat=30))
+                            tags_list.append(f'enviornment:{mqtt_env}')
+                            statsd.gauge(metric_name,float(metric_value),tags=tags_list)
+                            #print(metric_name,float(metric_value),type(tags))
+                            #print(data)
+    except UnicodeDecodeError as e:
+        logging.warn(f'Unicode error triggered, to be sent to ')
+        with open('error.csv', 'a') as f_object:
+            new_row = [datetime.now(),message.payload]
+            writer_object = csv.writer(f_object)
+            writer_object.writerow(new_row)
+    #print("received message: " ,str(message.payload.decode("utf-8")))
 
-    channel_error = connection_error.channel()
-    if error_queue !='':
-        lines = list()
-        channel_error.queue_declare(queue=error_queue)
-        for row in error_csv:
-            channel_error.basic_publish(exchange='', routing_key='Error messages', body=row[1])
-            with open('error.csv', 'r') as readFile:
-                reader = csv.reader(readFile)
-                for row in reader:
-                    lines.append(row)
-                    for field in row:
-                        if field == row[1]:
-                            lines.remove(row)
+def is_json_custom(load):
+    try:
+        json.loads(load)
+    except ValueError as e:
+        return False
+    return True
 
-            with open('error.csv', 'w') as writeFile:
-                writer = csv.writer(writeFile)
-                writer.writerows(lines)
+if mqtt_allow!='True':
+    credentials = pika.PlainCredentials(username,password)
 
-    connection_error.close()
+    error_csv= csv.reader(open('error.csv'))
+    if len(list(error_csv))>0:
+        connection_error = pika.SelectConnection(
+            pika.ConnectionParameters(str(host),int(port),str(virtual_host),credentials,heartbeat=30))
+
+        channel_error = connection_error.channel()
+        if error_queue !='':
+            lines = list()
+            channel_error.queue_declare(queue=error_queue)
+            for row in error_csv:
+                channel_error.basic_publish(exchange='', routing_key='Error messages', body=row[1])
+                with open('error.csv', 'r') as readFile:
+                    reader = csv.reader(readFile)
+                    for row in reader:
+                        lines.append(row)
+                        for field in row:
+                            if field == row[1]:
+                                lines.remove(row)
+
+                with open('error.csv', 'w') as writeFile:
+                    writer = csv.writer(writeFile)
+                    writer.writerows(lines)
+
+        connection_error.close()
 
 
 
-connection = pika.SelectConnection(
-    pika.ConnectionParameters(str(host),int(port),str(virtual_host),credentials,heartbeat=30),on_open_callback=on_open)
+    connection = pika.SelectConnection(
+        pika.ConnectionParameters(str(host),int(port),str(virtual_host),credentials,heartbeat=30),on_open_callback=on_open)
 
-try:
-    connection.ioloop.start()
-except KeyboardInterrupt:
-    logging.warning('Script interrupted manually')
-    connection.close()
+    try:
+        connection.ioloop.start()
+    except KeyboardInterrupt:
+        logging.warning('Script interrupted manually')
+        connection.close()
+
+else:
+    try:
+        # mqtt_queue =mqtt_queue.split(',')
+        error_csv= csv.reader(open('error.csv'))
+        if len(list(error_csv))>0:
+            client_name="P2"
+            client=mqtt.Client(client_name)
+            client.connect(mqtt_url)
+            client.on_message=on_message_mqtt
+            client.loop_start()
+
+            
+            if error_queue !='':
+                lines = list()
+                for row in error_csv:
+                    client.publish(mqtt_errorqueue,f'Error with format, message: {row[1]}',qos=0,retain=True)
+                    with open('error.csv', 'r') as readFile:
+                        reader = csv.reader(readFile)
+                        for row in reader:
+                            lines.append(row)
+                            for field in row:
+                                if field == row[1]:
+                                    lines.remove(row)
+
+                    with open('error.csv', 'w') as writeFile:
+                        writer = csv.writer(writeFile)
+                        writer.writerows(lines)
+            client.loop_stop()
+        while True:
+            #print(mqtt_url,mqtt_port,mqtt_queue)
+            client_name="P1"
+            
+            client=mqtt.Client(client_name)
+            client.connect(mqtt_url)
+            client.on_message=on_message_mqtt
+            client.loop_start()
+
+            client.subscribe(mqtt_queue)
+            
+            time.sleep(1)
+            client.loop_stop()
+    except KeyboardInterrupt:
+        logging.warning('Script interrupted manually')
 
 def log_channel_close(channel):
     logging.warning('Script channel is closed, messages are not logged')
@@ -183,7 +291,19 @@ if __name__ == '__main__':
     killer = GracefulKiller()
     while not killer.kill_now:
         time.sleep(0.1)
-      
+        # API = management.ManagementApi(f'{host}:{port}', username,
+        #                             password, verify=True)
+        # try:
+        #     result = API.aliveness_test(virtual_host)
+        #     if result['status'] == 'ok':
+        #         islive = True
+        #     else:
+        #         logging.warning('RabbitMQ is not alive! :(')
+        # except management.ApiConnectionError as why:
+        #     logging.warning('Connection Error: %s' % why)
+        # except management.ApiError as why:
+        #     logging.warning('ApiError: %s' % why)
+            
     logging.info('service has been stopped')
 
 

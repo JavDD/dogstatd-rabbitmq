@@ -46,6 +46,8 @@ mqtt_allow = config.get('mqtt queue','mqtt')
 mqtt_port = config.get('mqtt queue','port')
 mqtt_errorqueue = config.get('mqtt queue','errorqueue')
 mqtt_env = config.get('mqtt queue','env')
+mqtt_username = config.get('mqtt queue','username')
+mqtt_password = config.get('mqtt queue','password')
 # print(username)
 # print(password)
 # print(env_lists)
@@ -244,6 +246,7 @@ else:
         if len(list(error_csv))>0:
             client_name="P2"
             client=mqtt.Client(client_name)
+            client.username_pw_set(mqtt_username,mqtt_password)
             client.connect(mqtt_url)
             client.on_message=on_message_mqtt
             client.loop_start()
@@ -270,6 +273,7 @@ else:
             client_name="P1"
             
             client=mqtt.Client(client_name)
+            client.username_pw_set(mqtt_username,mqtt_password)
             client.connect(mqtt_url)
             client.on_message=on_message_mqtt
             client.loop_start()
